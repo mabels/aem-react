@@ -59,6 +59,18 @@ public class TypeScriptGeneratorTest {
 	}
 
 	@Test
+	public void testAnyArray() {
+		ClassDescriptor descriptor = GeneratorFromClass.createClassDescriptor(TestAnyArrayModel.class,
+				new ScanContext(), new PathMapper(TestAnyArrayModel.class.getName()));
+		InterfaceModel generate = TypeScriptGenerator.builder().build().generateModel(descriptor);
+		Assert.assertEquals(1, generate.getFields().size());
+		FieldModel field = generate.getFields().iterator().next();
+		Assert.assertEquals("models", field.getName());
+		Assert.assertEquals("any[]", field.getTypes()[0]);
+		Assert.assertEquals(0, generate.getImports().size());
+	}
+
+	@Test
 	public void testList() {
 		ClassDescriptor descriptor = GeneratorFromClass.createClassDescriptor(TestListModel.class, new ScanContext(),
 				new PathMapper(TestListModel.class.getName()));
@@ -69,6 +81,19 @@ public class TypeScriptGeneratorTest {
 		Assert.assertEquals("TestModel[]", field.getTypes()[0]);
 		Assert.assertEquals(1, generate.getImports().size());
 		Assert.assertEquals("TestModel", generate.getImports().iterator().next().getName());
+	}
+
+	@Test
+	public void testTsList() {
+		ClassDescriptor descriptor = GeneratorFromClass.createClassDescriptor(TestTsListModel.class, new ScanContext(),
+				new PathMapper(TestListModel.class.getName()));
+		InterfaceModel generate = TypeScriptGenerator.builder().build().generateModel(descriptor);
+		Assert.assertEquals(1, generate.getFields().size());
+		FieldModel field = generate.getFields().iterator().next();
+		Assert.assertEquals("models", field.getName());
+		Assert.assertEquals("Element[]", field.getTypes()[0]);
+		Assert.assertEquals(1, generate.getImports().size());
+		Assert.assertEquals("Element", generate.getImports().iterator().next().getName());
 	}
 
 	@Test

@@ -4,6 +4,7 @@ import java.beans.BeanInfo;
 import java.beans.IntrospectionException;
 import java.beans.Introspector;
 import java.beans.PropertyDescriptor;
+import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
 import java.util.Collection;
 import java.util.Collections;
@@ -26,6 +27,7 @@ import com.sinnerschrader.aem.react.tsgenerator.descriptor.TypeDescriptor;
 import com.sinnerschrader.aem.react.tsgenerator.descriptor.UnionType;
 import com.sinnerschrader.aem.react.tsgenerator.generator.PathMapper;
 import com.sinnerschrader.aem.reactapi.typescript.Element;
+import com.sinnerschrader.aem.reactapi.typescript.TsElement;
 
 public class GeneratorFromClass {
 	public static final Set<String> BLACKLIST = Collections.unmodifiableSet(new HashSet<String>() {
@@ -34,36 +36,40 @@ public class GeneratorFromClass {
 		}
 	});
 
-	public static TypeDescriptor convertType(Class<?> type, Element element, PathMapper mapper) {
+	public static TypeDescriptor convertType(Class<?> type, ClassBean element, PathMapper mapper) {
 		TypeDescriptor.TypeDescriptorBuilder td = TypeDescriptor.builder();
 		StringBuffer typeDeclaration = new StringBuffer();
-		final Class<?> propertyType;
+		final ClassBean propertyType;
 
 		if (type.isArray()) {
 			td.array(true);
-			propertyType = ClassUtils.primitiveToWrapper(type.getComponentType());
+			if (element != null) {
+				propertyType = element;
+			} else {
+				propertyType = new ClassBean(ClassUtils.primitiveToWrapper(type.getComponentType()));
+			}
 		} else if (Collection.class.isAssignableFrom(type)) {
 			td.array(true);
-			propertyType = element == null ? Object.class : element.value();
+			propertyType = element;
 		} else if (Map.class.isAssignableFrom(type)) {
 			td.map(true);
-			propertyType = element == null ? Object.class : element.value();
+			propertyType = element;
 		} else {
-			propertyType = ClassUtils.primitiveToWrapper(type);
+			propertyType = new ClassBean(ClassUtils.primitiveToWrapper(type));
 			td.array(false);
 		}
 
-		if (String.class.isAssignableFrom(propertyType)) {
+		if (propertyType.isString()) {
 			typeDeclaration.append(TypeDescriptor.STRING);
-		} else if (Number.class.isAssignableFrom(propertyType)) {
+		} else if (propertyType.isNumber()) {
 			typeDeclaration.append(TypeDescriptor.NUMBER);
-		} else if (Boolean.class.isAssignableFrom(propertyType)) {
+		} else if (propertyType.isBoolean()) {
 			typeDeclaration.append(TypeDescriptor.BOOL);
 		} else {
 			typeDeclaration.append(propertyType.getSimpleName());
 			String path = mapper.apply(propertyType.getName());
 			td.path(path)//
-					.extern(true);
+					.extern(propertyType.isExtern());
 		}
 
 		td.type(typeDeclaration.toString());
@@ -104,12 +110,10 @@ public class GeneratorFromClass {
 			for (PropertyDescriptor pd : info.getPropertyDescriptors()) {
 				if (!BLACKLIST.contains(pd.getName()) && (pd.getReadMethod() != null)) {
 					if (pd.getReadMethod().getAnnotation(JsonIgnore.class) == null) {
-						Element fieldAnnotation = null;
 						boolean inherited = false;
 						try {
 							Field declaredField = clazz.getDeclaredField(pd.getName());
 							inherited = declaredField.getDeclaringClass() != clazz;
-							fieldAnnotation = declaredField.getAnnotation(Element.class);
 
 						} catch (NoSuchFieldException | SecurityException e) {
 							//
@@ -120,17 +124,12 @@ public class GeneratorFromClass {
 						if (inherited) {
 							continue;
 						}
-						Element getterAnnotation = pd.getReadMethod() != null
-								? pd.getReadMethod().getAnnotation(Element.class)
-								: null;
-						Element element = Optional//
-								.ofNullable(getterAnnotation)//
-								.orElse(fieldAnnotation);
+						ClassBean clazzBean = getPropertyType(clazz, pd);
 
 						com.sinnerschrader.aem.react.tsgenerator.descriptor.PropertyDescriptor pdd = com.sinnerschrader.aem.react.tsgenerator.descriptor.PropertyDescriptor
 								.builder()//
 								.name(pd.getName())//
-								.type(convertType(pd.getPropertyType(), element, mapper))//
+								.type(convertType(pd.getPropertyType(), clazzBean, mapper))//
 								.build();
 
 						cd.getProperties().put(pdd.getName(), pdd);
@@ -143,6 +142,39 @@ public class GeneratorFromClass {
 		} catch (IntrospectionException e) {
 			return null;
 		}
+	}
+
+	private static ClassBean getPropertyType(Class clazz, PropertyDescriptor pd) {
+
+		Element element = getAnnotation(clazz, pd, Element.class);
+		TsElement tsElement = getAnnotation(clazz, pd, TsElement.class);
+
+		ClassBean classBean = Optional.ofNullable(element).map((Element e) -> {
+			return new ClassBean(e.value());
+		}).orElse(null);
+
+		ClassBean finalClassBean = Optional.ofNullable(tsElement).map((TsElement e) -> {
+			return new ClassBean(e.value());
+		}).orElse(classBean);
+
+		return finalClassBean;
+	}
+
+	private static <A extends Annotation> A getAnnotation(Class clazz, PropertyDescriptor pd, Class<A> aClass) {
+		A fieldAnnotation = null;
+		try {
+			Field declaredField = clazz.getDeclaredField(pd.getName());
+			fieldAnnotation = declaredField.getAnnotation(aClass);
+
+		} catch (NoSuchFieldException | SecurityException e) {
+			//
+		}
+		A getterAnnotation = pd.getReadMethod() != null ? pd.getReadMethod().getAnnotation(aClass) : null;
+		A element = Optional//
+				.ofNullable(getterAnnotation)//
+				.orElse(fieldAnnotation);
+
+		return element;
 	}
 
 	public static ClassDescriptor createClassDescriptor(String clazzName, ScanContext ctx, PathMapper mapper) {
